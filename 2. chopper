@@ -61,3 +61,8 @@ zcat "${FILE}" \
 ###run the script
 sbatch 01_chopper_q8.slurm
 
+###After chopping the sequences I have created the stats to see the length of the reads:
+module load seqkit
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run/qc_q8"
+
+seqkit stats BC*.qc_q8.fastq.gz > seqkit_stats_qc_q8.txt
