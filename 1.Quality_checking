@@ -1,0 +1,21 @@
+## The 24 samples are already demultiplexed. So, I want to check the quality of the read length before running chopper
+#loading seqkit
+module spider seqkit
+module spider seqkit/2.5.1
+
+#for 1st_run
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
+
+seqkit stats BC*.fastq.gz > seqkit_stats_all.txt
+
+#for 2nd_run
+[sbashar@narval1 1st_run]$ cd "/home/sbashar/scratch/16S/16S Stability Study/2nd_run"
+
+seqkit stats BC*.fastq.gz > seqkit_stats_all.txt
+
+##############1st run quality#############
+#All barcodes have thousands of reads with average lengths around 1.1–1.3 kb, but also very short reads (min_len around 7–20 bp) and very long reads (max_len up to 179–326 kb for some samples).
+###########2nd run quality#########
+#All samples have average lengths around 1,050–1,300 bp, which is in the right ballpark for full‑length 16S amplicons (after trimming) and is quite consistent across barcodes.
+#min_len is sometimes only a few bases (1–10 bp), indicating a tail of very short junk reads that you will want to remove; max_len ranges from about 6 kb up to >500 kb in BC11 and ~200 kb in BC12, again suggesting occasional concatamers or genomic DNA fragments rather than pure amplicons.
+#So overall quality (in terms of length distribution) looks similar or slightly better than first run: strong peak around ~1.1–1.2 kb but still some off‑target extremes. Chopper with a window like 1000–2500 bp and a moderate quality cutoff (e.g. Q8) is still an appropriate next step here.
