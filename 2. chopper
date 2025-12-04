@@ -1,0 +1,63 @@
+###download and load chopper
+
+#1. Load the correct Rust module and (re)build
+module --force purge
+module load StdEnv/2023 python/3.10 gcc/12.3 rust    # no /1.75
+
+  cd /home/sbashar/scratch/chopper    # repo already exists
+
+cargo clean                         # remove partial build if any
+cargo build --release               # will recreate target/release/chopper [web:95]
+#2. Test from the same shell:
+  export PATH=$PATH:/home/sbashar/scratch/chopper/target/release
+which chopper
+chopper --help
+
+  grep chopper/target/release ~/.bashrc || \
+  echo 'export PATH=$PATH:/home/sbashar/scratch/chopper/target/release' >> ~/.bashrc
+
+#3. After Chopper works, reuse the sbatch script
+  module load StdEnv/2023 python/3.10 gcc/12.3 rust
+export PATH=$PATH:/home/sbashar/scratch/chopper/target/release
+
+  ###################sbatch script for chopper######################
+##mkdir of logs and output
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
+mkdir -p logs qc_q8
+
+###sbatch script for 1st_run
+
+#!/bin/bash
+#SBATCH --job-name=chopper16S_q8
+#SBATCH --account=def-kozyrsky             # <-- change to your allocation
+#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=8G
+#SBATCH --array=1-12                      # 12 BC*.fastq.gz files
+#SBATCH --output=logs/chopper_q8_%A_%a.out
+#SBATCH --error=logs/chopper_q8_%A_%a.err
+
+module --force purge
+module load StdEnv/2023 python/3.10 gcc/12.3 rust
+export PATH=$PATH:/home/sbashar/scratch/chopper/target/release
+
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
+
+FILE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" fastq_list.txt)
+BASENAME=$(basename "${FILE}" .fastq.gz)
+
+mkdir -p qc_q8
+
+zcat "${FILE}" \
+  | chopper \
+      --minlength 1000 \
+      --maxlength 2500 \
+      -q 8 \
+      --headcrop 20 \
+      --tailcrop 20 \
+  | gzip > qc_q8/${BASENAME}.qc_q8.fastq.gz
+
+
+###run the script
+sbatch 01_chopper_q8.slurm
+
