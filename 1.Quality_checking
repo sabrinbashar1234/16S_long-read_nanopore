@@ -19,3 +19,8 @@ seqkit stats BC*.fastq.gz > seqkit_stats_all.txt
 #All samples have average lengths around 1,050–1,300 bp, which is in the right ballpark for full‑length 16S amplicons (after trimming) and is quite consistent across barcodes.
 #min_len is sometimes only a few bases (1–10 bp), indicating a tail of very short junk reads that you will want to remove; max_len ranges from about 6 kb up to >500 kb in BC11 and ~200 kb in BC12, again suggesting occasional concatamers or genomic DNA fragments rather than pure amplicons.
 #So overall quality (in terms of length distribution) looks similar or slightly better than first run: strong peak around ~1.1–1.2 kb but still some off‑target extremes. Chopper with a window like 1000–2500 bp and a moderate quality cutoff (e.g. Q8) is still an appropriate next step here.
+
+
+##A true full‑length 16S amplicon run should have most reads clustered near the expected amplicon size (for 27F–1492R, roughly 1400–1600 bp) with relatively few ultra‑short or ultra‑long reads
+#A true full‑length 16S amplicon run should have most reads 
+#clustered near the expected amplicon size (for 27F–1492R, roughly 1400–1600 bp) with relatively few ultra‑short or ultra‑long reads
