@@ -24,7 +24,11 @@ export PATH=$PATH:/home/sbashar/scratch/chopper/target/release
 ##mkdir of logs and output
 cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
 mkdir -p logs qc_q8
+##make list of the the samples
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
 
+# create list of the 24 FASTQ files, sorted by name
+ls BC*.fastq.gz | sort > fastq_list.txt
 ###sbatch script for 1st_run
 
 #!/bin/bash
@@ -66,3 +70,16 @@ module load seqkit
 cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run/qc_q8"
 
 seqkit stats BC*.qc_q8.fastq.gz > seqkit_stats_qc_q8.txt
+
+
+############for the 2nd_run#########################
+##make list
+[sbashar@narval1 2nd_run]$ cd "/home/sbashar/scratch/16S/16S Stability Study/2nd_run"
+
+# create list of the 24 FASTQ files, sorted by name
+ls BC*_01_L001_R1_001.fastq.gz | sort > fastq_list.txt
+##mkdir qc_q8 and log as before
+
+##run the slurm "01_chopper_q8.slurm"
+
+
