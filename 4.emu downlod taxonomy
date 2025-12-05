@@ -1,0 +1,81 @@
+##script for emu
+emu-download-db emu_db
+/home/sbashar/scratch/16S/emu_db
+
+##sbatch script
+#!/bin/bash
+#SBATCH --job-name=emu_tax
+#SBATCH --output=logs/emu.%A_%a.out
+#SBATCH --error=logs/emu.%A_%a.err
+#SBATCH --array=1-12
+#SBATCH --time=08:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+
+module load emu/3.5.1
+
+IN_DIR=/home/sbashar/scratch/16S/nochim
+DB=/home/sbashar/scratch/16S/emu_db
+OUT_DIR=/home/sbashar/scratch/16S/taxonomy
+
+mkdir -p ${OUT_DIR}
+
+FILES=(${IN_DIR}/BC*.nochim.fastq.gz)
+IN=${FILES[$SLURM_ARRAY_TASK_ID-1]}
+BASENAME=$(basename ${IN} .nochim.fastq.gz)
+OUT=${OUT_DIR}/${BASENAME}
+
+echo "Running EMU for ${IN}"
+
+emu abundance \
+  --db ${DB} \
+  --threads 8 \
+  --output-dir ${OUT} \
+  ${IN}
+
+echo "Finished: ${BASENAME}"
+
+
+##run it
+sbatch 03_emu_taxonomy.sbatch
+
+
+###Merge all abundance table
+
+#!/bin/bash
+#SBATCH --job-name=merge_emu
+#SBATCH --output=logs/merge_emu.out
+#SBATCH --error=logs/merge_emu.err
+#SBATCH --time=01:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=4G
+
+TAX_DIR=/home/sbashar/scratch/16S/taxonomy
+OUT=/home/sbashar/scratch/16S/taxonomy/combined_abundance.tsv
+
+module load python/3.10
+
+python3 << 'EOF'
+import glob
+import pandas as pd
+
+files = sorted(glob.glob(f"{TAX_DIR}/BC*/abundance.tsv"))
+dfs = []
+
+for f in files:
+    sample = f.split("/")[-2]
+    df = pd.read_csv(f, sep="\t")
+    df = df[["name", "abundance"]]
+    df.rename(columns={"abundance": sample}, inplace=True)
+    dfs.append(df)
+
+merged = dfs[0]
+for df in dfs[1:]:
+    merged = merged.merge(df, on="name", how="outer")
+
+merged.fillna(0, inplace=True)
+merged.to_csv("${OUT}", sep="\t", index=False)
+EOF
+
+##run it
+sbatch 04_merge_taxonomy.sbatch
