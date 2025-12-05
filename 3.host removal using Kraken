@@ -1,0 +1,46 @@
+#load kraken2
+module --force purge
+module load StdEnv/2023
+module load kraken2/2.1.6
+
+#  2. Make a database (option A)
+
+ls /project/def-kozyrsky
+ls /project/def-kozyrsky/*kraken*
+
+  KRAKEN_DB=/project/def-kozyrsky/path/to/that_folder
+
+
+  ##option B : BUILD THE STANDARD DATABASE ONCE (if no DB exist yey in project space)
+  module --force purge
+module load StdEnv/2023
+module load kraken2/2.1.6
+
+DBDIR=/project/def-kozyrsky/kraken2_standard_64   # choose a real project path
+mkdir -p "$DBDIR"
+
+kraken2-build --standard --threads 16 --db "$DBDIR"
+
+  #then BCO1 host-removal command
+
+  
+module --force purge
+module load StdEnv/2023
+module load kraken2/2.1.6
+
+cd "/home/sbashar/scratch/16S/16S Stability Study/1st_run"
+
+KRAKEN_DB=/project/def-yourpi/kraken2_standard_64
+
+INPUT="qc_q8/BC01.qc_q8.fastq.gz"
+BASENAME=$(basename "${INPUT}" .fastq.gz)
+
+mkdir -p host_filtered
+
+kraken2 \
+  --db "${KRAKEN_DB}" \
+  --threads 8 \
+  --output host_filtered/${BASENAME}.k2.out.txt \
+  --report host_filtered/${BASENAME}.k2.report.txt \
+  --unclassified-out >(gzip > host_filtered/${BASENAME}.nohost.fastq.gz) \
+  "${INPUT}"
