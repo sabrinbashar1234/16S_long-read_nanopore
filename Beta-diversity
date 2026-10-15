@@ -1,0 +1,659 @@
+##############################beta-diversity oct 15/2026################
+
+############################################################
+# LONG-READ 16S MICROBIOME STORAGE STUDY
+# Genus-level Bray-Curtis beta-diversity
+#
+# Study design:
+# 12 children, each with 3 matched aliquots:
+#   Baseline = unstored
+#   Test     = -20 C for 6 months
+#   GoldStd  = -80 C for 6 months
+#
+# Main analyses:
+# 1. Overall matched PERMANOVA (3 conditions)
+# 2. Matched PERMANOVA (-20 C vs -80 C)
+# 3. Secondary baseline comparisons
+# 4. NMDS visualization
+# 5. Dispersion diagnostics
+############################################################
+
+
+############################
+# 0. INSTALL PACKAGES
+############################
+
+packages <- c(
+  "dplyr",
+  "tidyr",
+  "readxl",
+  "vegan",
+  "ggplot2",
+  "ggsci",
+  "permute",
+  "tibble"
+)
+
+new_packages <- packages[
+  !packages %in% installed.packages()[, "Package"]
+]
+
+if (length(new_packages) > 0) {
+  install.packages(new_packages)
+}
+
+invisible(lapply(packages, library, character.only = TRUE))
+
+
+############################
+# 1. FILE PATHS
+############################
+
+genus_file <- paste0(
+  "C:/Users/Sabrin/Downloads/",
+  "emu_rel_abundance_genus_transposed_cleanIDs.csv"
+)
+
+metadata_file <- paste0(
+  "C:/Users/Sabrin/Downloads/",
+  "metadata_16S_longreads.xlsx"
+)
+
+output_dir <- paste0(
+  "C:/Users/Sabrin/Downloads/",
+  "Beta_Diversity_Matched_Results"
+)
+
+dir.create(
+  output_dir,
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+
+############################
+# 2. IMPORT DATA
+############################
+
+genus_tab <- read.csv(
+  genus_file,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+names(genus_tab)[1] <- "SequenceID"
+
+meta <- readxl::read_xlsx(metadata_file)
+
+genus_tab$SequenceID <- as.character(
+  genus_tab$SequenceID
+)
+
+meta$SequenceID <- as.character(
+  meta$SequenceID
+)
+
+# Check required columns
+stopifnot(
+  all(c("SequenceID", "SampleID", "Storage") %in%
+        names(meta))
+)
+
+stopifnot(
+  !anyDuplicated(genus_tab$SequenceID),
+  !anyDuplicated(meta$SequenceID)
+)
+
+
+############################
+# 3. IDENTIFY GENUS COLUMNS
+############################
+
+# Important:
+# Identify genus columns BEFORE merging metadata.
+# This prevents numeric metadata from entering
+# the Bray-Curtis calculation.
+
+genus_cols <- setdiff(
+  names(genus_tab),
+  "SequenceID"
+)
+
+
+############################
+# 4. MERGE METADATA
+############################
+
+dat <- genus_tab %>%
+  inner_join(meta, by = "SequenceID") %>%
+  mutate(
+    SampleID = factor(SampleID),
+    Storage = factor(
+      Storage,
+      levels = c(
+        "Baseline",
+        "Test",
+        "GoldStd"
+      ),
+      labels = c(
+        "Baseline",
+        "-20C",
+        "-80C"
+      )
+    )
+  )
+
+cat("\nSamples by storage condition:\n")
+print(table(dat$Storage))
+
+cat("\nChild by storage condition:\n")
+print(table(dat$SampleID, dat$Storage))
+
+############################################################
+# STAGE 5: VALIDATE MATCHED DESIGN
+############################################################
+
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(ggsci)
+library(permute)
+
+output_dir <- "C:/Users/Sabrin/Downloads/"
+
+# Check storage groups
+print(table(dat$Storage))
+
+# Check matched samples
+print(table(dat$SampleID, dat$Storage))
+
+stopifnot(
+  nrow(dat) == 36,
+  nlevels(dat$SampleID) == 12,
+  !anyNA(dat$Storage),
+  !anyNA(dat$SampleID),
+  all(table(dat$SampleID, dat$Storage) == 1)
+)
+
+cat("\nMatched design verified.\n")
+
+
+############################################################
+# STAGE 6: EXTRACT GENUS ABUNDANCE MATRIX
+############################################################
+
+# Select only genus columns
+comm_genus <- dat[, genus_cols, drop = FALSE]
+
+# Convert genus abundances to numeric
+comm_genus <- as.data.frame(
+  lapply(comm_genus, function(x) {
+    as.numeric(as.character(x))
+  }),
+  check.names = FALSE
+)
+
+rownames(comm_genus) <- dat$SequenceID
+
+comm_matrix <- as.matrix(comm_genus)
+
+# Check values
+stopifnot(
+  !anyNA(comm_matrix),
+  all(is.finite(comm_matrix)),
+  all(comm_matrix >= 0),
+  all(rowSums(comm_matrix) > 0)
+)
+
+# Examine genus abundance totals
+cat("\nRelative abundance row sums:\n")
+print(summary(rowSums(comm_matrix)))
+
+# Identify samples with lower totals
+row_sum_check <- data.frame(
+  SequenceID = dat$SequenceID,
+  SampleID = dat$SampleID,
+  Storage = dat$Storage,
+  TotalAbundance = rowSums(comm_matrix)
+)
+
+row_sum_check <- row_sum_check[
+  order(row_sum_check$TotalAbundance),
+]
+
+print(row_sum_check, row.names = FALSE)
+
+write.csv(
+  row_sum_check,
+  file.path(output_dir, "Genus_abundance_row_sums.csv"),
+  row.names = FALSE
+)
+
+# IMPORTANT:
+# Keep the original abundance values.
+# Do not force each row to sum to 1.
+# Bray-Curtis accepts nonnegative abundance data.
+
+
+############################################################
+# STAGE 7: BRAY-CURTIS DISTANCE
+############################################################
+
+bray_genus <- vegdist(
+  comm_matrix,
+  method = "bray"
+)
+
+cat("\nBray-Curtis distance calculated.\n")
+
+
+############################################################
+# STAGE 8: OVERALL MATCHED PERMANOVA
+# Baseline vs -20C vs -80C
+############################################################
+
+set.seed(123)
+
+perm_all <- permute::how(
+  nperm = 9999,
+  blocks = dat$SampleID,
+  within = permute::Within(type = "free")
+)
+
+# Account for child identity
+permanova_all <- adonis2(
+  bray_genus ~ SampleID + Storage,
+  data = dat,
+  permutations = perm_all,
+  by = "terms"
+)
+
+cat("\nOVERALL MATCHED PERMANOVA:\n")
+print(permanova_all)
+
+overall_results <- as.data.frame(permanova_all)
+overall_results$Term <- rownames(overall_results)
+
+write.csv(
+  overall_results,
+  file.path(output_dir, "PERMANOVA_overall_3conditions.csv"),
+  row.names = FALSE
+)
+
+
+############################################################
+# STAGE 9: FUNCTION FOR MATCHED PAIRWISE PERMANOVA
+############################################################
+
+run_paired_permanova <- function(group1, group2) {
+  
+  # Select the two storage conditions
+  keep <- dat$Storage %in% c(group1, group2)
+  
+  dat_pair <- droplevels(
+    dat[keep, , drop = FALSE]
+  )
+  
+  comm_pair <- comm_matrix[
+    keep,
+    ,
+    drop = FALSE
+  ]
+  
+  # Verify matched pairs
+  stopifnot(
+    nrow(dat_pair) == 24,
+    all(table(
+      dat_pair$SampleID,
+      dat_pair$Storage
+    ) == 1)
+  )
+  
+  # Bray-Curtis
+  bray_pair <- vegdist(
+    comm_pair,
+    method = "bray"
+  )
+  
+  # Restricted permutations
+  perm_pair <- permute::how(
+    nperm = 9999,
+    blocks = dat_pair$SampleID,
+    within = permute::Within(type = "free")
+  )
+  
+  # Matched PERMANOVA
+  set.seed(123)
+  
+  fit <- adonis2(
+    bray_pair ~ SampleID + Storage,
+    data = dat_pair,
+    permutations = perm_pair,
+    by = "terms"
+  )
+  
+  result <- as.data.frame(fit)
+  result$Term <- rownames(result)
+  
+  storage_result <- result[
+    result$Term == "Storage",
+    ,
+    drop = FALSE
+  ]
+  
+  storage_result$Comparison <- paste(
+    group1,
+    "vs",
+    group2
+  )
+  
+  list(
+    model = fit,
+    result = storage_result,
+    data = dat_pair,
+    community = comm_pair,
+    distance = bray_pair
+  )
+}
+
+
+############################################################
+# STAGE 10: PRIMARY COMPARISON
+# -20C vs -80C
+############################################################
+
+temp_comparison <- run_paired_permanova(
+  "-20C",
+  "-80C"
+)
+
+cat("\nPRIMARY COMPARISON: -20C VS -80C\n")
+print(temp_comparison$model)
+
+
+############################################################
+# STAGE 11: SECONDARY COMPARISONS
+############################################################
+
+baseline_20 <- run_paired_permanova(
+  "Baseline",
+  "-20C"
+)
+
+baseline_80 <- run_paired_permanova(
+  "Baseline",
+  "-80C"
+)
+
+cat("\nBASELINE VS -20C:\n")
+print(baseline_20$model)
+
+cat("\nBASELINE VS -80C:\n")
+print(baseline_80$model)
+
+
+############################################################
+# STAGE 12: COMBINE PAIRWISE RESULTS
+############################################################
+
+pairwise_results <- bind_rows(
+  temp_comparison$result,
+  baseline_20$result,
+  baseline_80$result
+)
+
+# Benjamini-Hochberg correction
+pairwise_results$BH_FDR <- p.adjust(
+  pairwise_results$`Pr(>F)`,
+  method = "BH"
+)
+
+cat("\nPAIRWISE PERMANOVA SUMMARY:\n")
+print(pairwise_results)
+
+write.csv(
+  pairwise_results,
+  file.path(output_dir, "PERMANOVA_pairwise_matched.csv"),
+  row.names = FALSE
+)
+
+
+############################################################
+# STAGE 13: NMDS - ALL THREE STORAGE CONDITIONS
+############################################################
+
+set.seed(123)
+
+nmds_all <- metaMDS(
+  comm_matrix,
+  distance = "bray",
+  k = 2,
+  trymax = 100,
+  trace = FALSE
+)
+
+scores_all <- as.data.frame(
+  scores(nmds_all, display = "sites")
+)
+
+scores_all$Storage <- dat$Storage
+scores_all$SampleID <- dat$SampleID
+
+theme_pub <- theme_classic(base_size = 14) +
+  theme(
+    axis.text = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.text = element_text(face = "bold"),
+    legend.title = element_text(face = "bold")
+  )
+
+p_all <- ggplot(
+  scores_all,
+  aes(
+    x = NMDS1,
+    y = NMDS2,
+    color = Storage
+  )
+) +
+  geom_point(size = 3, alpha = 0.9) +
+  stat_ellipse(
+    type = "t",
+    level = 0.95,
+    linetype = 2,
+    linewidth = 0.8
+  ) +
+  scale_color_npg() +
+  labs(
+    title = "Genus-level beta diversity",
+    subtitle = paste0(
+      "Stress = ",
+      round(nmds_all$stress, 3)
+    ),
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Storage"
+  ) +
+  theme_pub
+
+print(p_all)
+
+ggsave(
+  file.path(output_dir, "NMDS_all_3conditions.png"),
+  p_all,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+ggsave(
+  file.path(output_dir, "NMDS_all_3conditions.pdf"),
+  p_all,
+  width = 8,
+  height = 6
+)
+
+
+############################################################
+# STAGE 14: NMDS -20C VS -80C
+# WITH MATCHED CHILDREN CONNECTED
+############################################################
+
+dat_temp <- temp_comparison$data
+comm_temp <- temp_comparison$community
+
+set.seed(123)
+
+nmds_temp <- metaMDS(
+  comm_temp,
+  distance = "bray",
+  k = 2,
+  trymax = 100,
+  trace = FALSE
+)
+
+scores_temp <- as.data.frame(
+  scores(nmds_temp, display = "sites")
+)
+
+scores_temp$Storage <- dat_temp$Storage
+scores_temp$SampleID <- dat_temp$SampleID
+
+p_temp <- ggplot(
+  scores_temp,
+  aes(
+    x = NMDS1,
+    y = NMDS2
+  )
+) +
+  geom_line(
+    aes(group = SampleID),
+    color = "grey70",
+    linewidth = 0.6,
+    alpha = 0.7
+  ) +
+  geom_point(
+    aes(color = Storage),
+    size = 3
+  ) +
+  stat_ellipse(
+    aes(color = Storage),
+    type = "t",
+    level = 0.95,
+    linetype = 2,
+    linewidth = 0.8
+  ) +
+  scale_color_npg() +
+  labs(
+    title = "Genus-level beta diversity",
+    subtitle = paste0(
+      "-20C vs -80C | Stress = ",
+      round(nmds_temp$stress, 3)
+    ),
+    x = "NMDS1",
+    y = "NMDS2",
+    color = "Storage"
+  ) +
+  theme_pub
+
+print(p_temp)
+
+ggsave(
+  file.path(output_dir, "NMDS_20_vs_80_paired.png"),
+  p_temp,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+ggsave(
+  file.path(output_dir, "NMDS_20_vs_80_paired.pdf"),
+  p_temp,
+  width = 8,
+  height = 6
+)
+
+
+############################################################
+# STAGE 15: MULTIVARIATE DISPERSION
+############################################################
+
+# Descriptive dispersion assessment.
+# A conventional betadisper permutation test
+# does not automatically account for matching.
+
+disp_all <- betadisper(
+  bray_genus,
+  group = dat$Storage
+)
+
+disp_temp <- betadisper(
+  temp_comparison$distance,
+  group = temp_comparison$data$Storage
+)
+
+cat("\nDISPERSION - ALL CONDITIONS:\n")
+print(disp_all)
+
+cat("\nDISPERSION -20C VS -80C:\n")
+print(disp_temp)
+
+png(
+  file.path(output_dir, "Dispersion_20_vs_80.png"),
+  width = 1800,
+  height = 1400,
+  res = 300
+)
+
+boxplot(
+  disp_temp,
+  xlab = "Storage temperature",
+  ylab = "Distance to group median",
+  main = "Multivariate dispersion"
+)
+
+dev.off()
+
+
+############################################################
+# STAGE 16: EXPORT NMDS COORDINATES
+############################################################
+
+write.csv(
+  scores_all,
+  file.path(output_dir, "NMDS_all_coordinates.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  scores_temp,
+  file.path(output_dir, "NMDS_20_vs_80_coordinates.csv"),
+  row.names = FALSE
+)
+
+
+############################################################
+# STAGE 17: SAVE SESSION INFORMATION
+############################################################
+
+capture.output(
+  sessionInfo(),
+  file = file.path(output_dir, "R_session_info.txt")
+)
+
+
+############################################################
+# STAGE 18: FINAL SUMMARY
+############################################################
+
+cat("\n====================================\n")
+cat("BETA-DIVERSITY ANALYSIS COMPLETE\n")
+cat("====================================\n")
+
+cat("\nOVERALL PERMANOVA:\n")
+print(permanova_all)
+
+cat("\nPAIRWISE PERMANOVA:\n")
+print(pairwise_results)
+
+cat("\nResults saved to:\n")
+cat(output_dir, "\n")
